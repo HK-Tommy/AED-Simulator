@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Clinical AED & Monitor Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+        body { background-color: #020202; font-family: 'Roboto Mono', monospace; color: white; overflow: hidden; }
+        .monitor-grid { background-image: linear-gradient(#111 1px, transparent 1px), linear-gradient(90deg, #111 1px, transparent 1px); background-size: 50px 50px; }
+        .text-ecg { color: #00ff41; text-shadow: 0 0 5px rgba(0,255,65,0.5); }
+        .text-spo2 { color: #00e5ff; text-shadow: 0 0 5px rgba(0,229,255,0.5); }
+        .text-resp { color: #ffff00; text-shadow: 0 0 5px rgba(255,255,0,0.5); }
+        .value-card { background: rgba(15, 15, 15, 0.9); border-left: 5px solid; transition: all 0.3s ease; }
+        canvas { filter: drop-shadow(0 0 2px rgba(0,255,65,0.3)); }
+        .btn-medical { transition: all 0.2s; border: 2px solid rgba(255,255,255,0.1); }
+        .btn-medical:active { transform: scale(0.95); }
+    </style>
+</head>
+<body class="p-6">
+
+<div class="grid grid-cols-12 gap-6 h-[92vh]">
+    <!-- 左側：臨床級監護螢幕 -->
+    <div class="col-span-9 bg-black border-4 border-gray-900 rounded-xl relative overflow-hidden monitor-grid flex flex-col">
+        <div class="p-4 flex justify-between bg-gray-900/50 border-b border-gray-800">
+            <div class="font-bold tracking-widest text-gray-400">PATIENT ID: 2026-HK-0982 <span class="ml-4 text-white">ADULT MODE</span></div>
+            <div id="clock" class="text-xl font-bold">--:--:--</div>
+        </div>
+
+        <div class="flex-1 p-4 flex flex-col gap-2">
+            <!-- ECG Wave -->
+            <div class="relative h-1/3">
+                <div class="absolute top-0 left-0 text-ecg text-xs font-bold uppercase">Lead II x1.0</div>
+                <canvas id="ecgCanvas" class="w-full h-full"></canvas>
+            </div>
+            <!-- SpO2 Wave -->
+            <div class="relative h-1/4">
+                <div class="absolute top-0 left-0 text-spo2 text-xs font-bold uppercase">Plethysmograph</div>
+                <canvas id="spo2Canvas" class="w-full h-full"></canvas>
+            </div>
+            <!-- Resp Wave -->
+            <div class="relative h-1/4">
+                <div class="absolute top-0 left-0 text-resp text-xs font-bold uppercase">Respiratory Wave</div>
+                <canvas id="respCanvas" class="w-full h-full"></canvas>
+            </div>
+        </div>
+
+        <!-- AED 浮層 -->
+        <div id="aed-overlay" class="absolute inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center hidden z-50">
+            <div class="bg-black border-4 border-red-600 p-10 text-center rounded-2xl max-w-lg w-full shadow-[0_0_50px_rgba(220,38,38,0.5)]">
+                <h2 id="aed-msg" class="text-5xl font-black text-red-500 mb-6">正在分析...</h2>
+                <div id="aed-action-box">
+                    <p class="text-xl text-gray-300">請保持安靜，不要觸碰病人</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右側：生理參數與操控 -->
+    <div class="col-span-3 flex flex-col gap-4">
+        <!-- 數值面板 -->
+        <div class="space-y-3">
+            <div class="value-card border-green-500 p-4 rounded-lg">
+                <div class="flex justify-between items-end">
+                    <span class="text-ecg text-sm font-bold">HR</span>
+                    <span id="val-hr" class="text-6xl font-bold text-ecg">--</span>
+                </div>
+            </div>
+            <div class="value-card border-cyan-400 p-4 rounded-lg">
+                <div class="flex justify-between items-end">
+                    <span class="text-spo2 text-sm font-bold">SpO2</span>
+                    <span id="val-spo2" class="text-6xl font-bold text-spo2">--</span>
+                </div>
+            </div>
+            <div class="value-card border-yellow-400 p-4 rounded-lg">
+                <div class="flex justify-between items-end">
+                    <span class="text-resp text-sm font-bold">RR</span>
+                    <span id="val-rr" class="text-6xl font-bold text-resp">--</span>
+                </div>
+            </div>
+            <div class="value-card border-red-500 p-4 rounded-lg">
+                <div class="flex justify-between items-end">
+                    <span class="text-red-500 text-sm font-bold">NIBP</span>
+                    <span id="val-bp" class="text-3xl font-bold text-red-500">120/80</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制台 -->
+        <div class="mt-auto bg-gray-900/80 p-5 rounded-xl border border-gray-800 space-y-4">
+            <h3 class="text-blue-400 font-bold border-b border-gray-800 pb-2 flex items-center gap-2">
+                <span class="w-2 h-2 bg-blue-500 rounded-full"></span> 模擬設置
+            </h3>
+            
+            <div>
+                <label class="text-[10px] uppercase text-gray-500">當前病理狀態</label>
+                <select id="set-rhythm" class="w-full bg-black p-3 rounded mt-1 border border-gray-700 text-sm outline-none">
+                    <option value="NSR">Normal Sinus Rhythm</option>
+                    <option value="VF">Ventricular Fibrillation (VF)</option>
+                    <option value="VT">Pulseless V-Tachycardia (pVT)</option>
+                    <option value="ASY">Asystole (Flatline)</option>
+                    <option value="BRADY">Severe Bradycardia</option>
+                </select>
+            </div>
+
+            <button id="btn-analyze" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-black tracking-widest btn-medical shadow-lg">START ANALYSIS</button>
+            <button id="btn-shock" class="w-full bg-red-600 hover:bg-red-500 py-5 rounded-xl font-black text-xl hidden shadow-[0_0_30px_rgba(220,38,38,0.6)]">SHOCK NOW</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const state = {
+        rhythm: 'NSR',
+        targetHR: 75,
+        currentHR: 75,
+        targetSpO2: 98,
+        currentSpO2: 98,
+        targetRR: 16,
+        currentRR: 16,
+        x: 0,
+        nextBeat: 0,
+        lastTime: 0,
+        baselineWander: 0,
+        canShock: false
+    };
+
+    const config = {
+        ecg: { id: 'ecgCanvas', ctx: null, color: '#00ff41' },
+        spo2: { id: 'spo2Canvas', ctx: null, color: '#00e5ff' },
+        resp: { id: 'respCanvas', ctx: null, color: '#ffff00' }
+    };
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+const analysisAudio = new Audio('aed_anlys.mp3');
+    analysisAudio.preload = 'auto'; // 預先加載
+
+const readyforshockAudio = new Audio('aed_ready_for_shock.mp3');
+    readyforshockAudio.preload = 'auto'; // 預先加載
+
+const shockalertAudio = new Audio('aed_shock_alert.mp3');
+    shockalertAudio.preload = 'auto'; // 預先加載
+
+const aftershockAudio = new Audio('aed_after_shock.mp3');
+    aftershockAudio.preload = 'auto'; // 預先加載
+
+const noshockAudio = new Audio('aed_no_shock.mp3');
+    noshockAudio.preload = 'auto'; // 預先加載
+
+function playAnalysisSound() {
+        analysisAudio.currentTime = 0; // 重置到開頭
+        analysisAudio.play().catch(e => console.log("音檔播放受阻 (需與頁面交互):", e));
+    }
+
+function playReadyForShockSound() {
+setTimeout(() => {
+        readyforshockAudio.currentTime = 0; // 重置到開頭
+        readyforshockAudio.play().catch(e => window.alert("音檔播放受阻 (需與頁面交互):", e));
+
+}, 1000);
+}
+
+function playShockAlertSound() {
+setTimeout(() => {
+        shockalertAudio.currentTime = 0; // 重置到開頭
+               shockalertAudio.loop = true;
+        shockalertAudio.play().catch(e => console.log("音檔播放受阻 (需與頁面交互):", e));
+    }, 1000);
+}
+
+function playAfterShockSound() {
+setTimeout(() => {
+        aftershockAudio.currentTime = 0; // 重置到開頭
+        aftershockAudio.play().catch(e => console.log("音檔播放受阻 (需與頁面交互):", e));
+    }, 1000);
+}
+
+function playNoShockSound() {
+setTimeout(() => {
+        noshockAudio.currentTime = 0; // 重置到開頭
+        noshockAudio.play().catch(e => console.log("音檔播放受阻 (需與頁面交互):", e));
+    }, 1000);
+}
+
+
+    function init() {
+        Object.keys(config).forEach(k => {
+            const c = document.getElementById(config[k].id);
+            c.width = c.offsetWidth;
+            c.height = c.offsetHeight;
+            config[k].ctx = c.getContext('2d');
+        });
+
+        // 定時波動生理參數 (增加真實感)
+        setInterval(fluctuateParameters, 2000);
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toLocaleTimeString();
+        }, 1000);
+
+        requestAnimationFrame(loop);
+    }
+
+    function fluctuateParameters() {
+        if (state.rhythm === 'ASY') {
+            state.currentHR = 0; state.currentSpO2 = 0;
+            updateUI(); return;
+        }
+        // 模擬正常人的生理性微幅變動
+        state.currentHR = state.targetHR + (Math.floor(Math.random() * 3) - 1);
+        state.currentSpO2 = Math.min(100, state.targetSpO2 + (Math.floor(Math.random() * 2) - 1));
+        state.currentRR = state.targetRR + (Math.floor(Math.random() * 2) - 1);
+        updateUI();
+    }
+
+    function updateUI() {
+        document.getElementById('val-hr').innerText = state.currentHR || '--';
+        document.getElementById('val-spo2').innerText = state.currentSpO2 || '--';
+        document.getElementById('val-rr').innerText = state.currentRR || '--';
+    }
+
+    function loop(time) {
+        const delta = time - state.lastTime;
+        state.lastTime = time;
+        
+        const ctxE = config.ecg.ctx;
+        const ctxS = config.spo2.ctx;
+        const ctxR = config.resp.ctx;
+        const w = ctxE.canvas.width;
+        
+        // 掃描線清除
+        ctxE.fillStyle = 'rgba(0,0,0,0.1)';
+        ctxE.fillRect(state.x, 0, 40, ctxE.canvas.height);
+        ctxS.fillStyle = 'rgba(0,0,0,0.1)';
+        ctxS.fillRect(state.x, 0, 40, ctxS.canvas.height);
+        ctxR.fillStyle = 'rgba(0,0,0,0.1)';
+        ctxR.fillRect(state.x, 0, 40, ctxR.canvas.height);
+
+        // 基線漂移模擬呼吸 (Baseline Wander)
+        state.baselineWander = Math.sin(time * 0.001) * 5;
+
+        // 1. ECG 繪製邏輯
+        let yE = ctxE.canvas.height / 2 + state.baselineWander;
+        if (state.rhythm === 'NSR' || state.rhythm === 'BRADY') {
+            const beatInterval = (60000 / state.currentHR);
+            if (time > state.nextBeat) {
+                // 觸發 QRS 波
+                yE -= 80 + (Math.random() * 10);
+                playBeep(880 + (state.currentSpO2 * 2), 0.05, 0.08); // 血氧音調變化
+                state.nextBeat = time + beatInterval + (Math.random() * 40 - 20); // 加入 HRV 隨機性
+            } else {
+                const progress = state.nextBeat - time;
+                if (progress < 150) yE -= 15; // T 波
+                else if (progress > 400 && progress < 450) yE -= 5; // P 波
+                yE += (Math.random() - 0.5) * 2; // 電子噪點
+            }
+        } else if (state.rhythm === 'VF') {
+            yE += (Math.random() - 0.5) * 100 * (Math.sin(time * 0.01) + 1);
+        } else if (state.rhythm === 'VT') {
+            yE += Math.sin(time * 0.03) * 60 + (Math.random() - 0.5) * 15;
+        } else {
+            yE += (Math.random() - 0.5) * 2;
+        }
+
+        drawPoint(ctxE, state.x, yE, config.ecg.color);
+
+        // 2. SpO2 繪製 (帶有小 Dicrotic Notch 的波形)
+        let yS = ctxS.canvas.height / 2 + Math.sin(time * 0.008) * 25 + Math.sin(time * 0.016) * 5;
+        if (state.rhythm === 'ASY') yS = ctxS.canvas.height / 2;
+        drawPoint(ctxS, state.x, yS, config.spo2.color);
+
+        // 3. Resp 繪製
+        let yR = ctxR.canvas.height / 2 + Math.sin(time * 0.002) * 30;
+        drawPoint(ctxR, state.x, yR, config.resp.color);
+
+        state.x = (state.x + 3) % w;
+        requestAnimationFrame(loop);
+    }
+
+    function drawPoint(ctx, x, y, color) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + 3, y);
+        ctx.stroke();
+    }
+
+    function playBeep(freq, vol, duration) {
+        if (state.rhythm === 'ASY') return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.frequency.value = freq;
+        g.gain.value = vol;
+        osc.connect(g);
+        g.connect(audioCtx.destination);
+        osc.start();
+        g.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    // --- AED 交互邏輯 ---
+    const btnAnalyze = document.getElementById('btn-analyze');
+    const btnShock = document.getElementById('btn-shock');
+    const overlay = document.getElementById('aed-overlay');
+    const aedMsg = document.getElementById('aed-msg');
+
+    btnAnalyze.onclick = () => {
+        btnAnalyze.disabled = true;
+        overlay.classList.remove('hidden');
+        aedMsg.innerText = "分析心律中...";
+        speak("正在分析心律。請不要觸碰病人。");
+		  playAnalysisSound();
+
+        setTimeout(() => {
+            if (state.rhythm === 'VF' || state.rhythm === 'VT') {
+                aedMsg.innerText = "建議電擊";
+                aedMsg.classList.add('animate-pulse');
+                speak("建議電擊。正在充電。離開病人。");
+                playReadyForShockSound();
+                setTimeout(() => {
+                    btnShock.classList.remove('hidden');
+                    state.canShock = true;
+                    speak("請按下閃爍的電擊按鈕。");
+   						playShockAlertSound();
+                }, 11000);
+            } else {
+                aedMsg.innerText = "不建議電擊";
+                speak("不建議電擊。請開始心肺復甦。");
+                playNoShockSound();
+                setTimeout(resetAED, 3000);
+            }
+        }, 6000);
+    };
+
+    btnShock.onclick = () => {
+        if (!state.canShock) return;
+        shockalertAudio.pause();
+ 		  playAfterShockSound();
+        document.body.style.backgroundColor = "white";
+        state.canShock = false;
+        btnShock.classList.add('hidden');
+        speak("電擊完成。");
+
+        // 電擊後生理反應
+        const oldR = state.rhythm;
+        state.rhythm = 'ASY'; // 瞬間除極
+        
+        setTimeout(() => {
+            document.body.style.backgroundColor = "#020202";
+            // 60% 恢復 NSR，40% 失敗
+            state.rhythm = Math.random() > 0.4 ? 'NSR' : oldR;
+            if (state.rhythm === 'NSR') {
+                state.targetHR = 72 + Math.floor(Math.random() * 20);
+                state.targetSpO2 = 95 + Math.floor(Math.random() * 5);
+            }
+            updateUI();
+            setTimeout(resetAED, 2000);
+        }, 1000);
+    };
+
+    function resetAED() {
+        overlay.classList.add('hidden');
+        btnAnalyze.disabled = false;
+        aedMsg.classList.remove('animate-pulse');
+    }
+
+    function speak(text) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'zh-HK';
+        window.speechSynthesis.speak(u);
+    }
+
+    document.getElementById('set-rhythm').onchange = (e) => {
+        state.rhythm = e.target.value;
+        if (state.rhythm === 'NSR') { state.targetHR = 75; state.targetSpO2 = 98; state.targetRR = 16; }
+        else if (state.rhythm === 'VF' || state.rhythm === 'VT') { state.targetHR = 180; state.targetSpO2 = 85; }
+        else if (state.rhythm === 'BRADY') { state.targetHR = 38; state.targetSpO2 = 92; }
+        else if (state.rhythm === 'ASY') { state.targetHR = 0; state.targetSpO2 = 0; }
+        updateUI();
+    };
+
+    window.onload = init;
+</script>
+</body>
+</html>
