@@ -311,14 +311,12 @@ setTimeout(() => {
         btnAnalyze.disabled = true;
         overlay.classList.remove('hidden');
         aedMsg.innerText = "分析心律中...";
-        speak("正在分析心律。請不要觸碰病人。");
 		  playAnalysisSound();
 
         setTimeout(() => {
             if (state.rhythm === 'VF' || state.rhythm === 'VT') {
                 aedMsg.innerText = "建議電擊";
                 aedMsg.classList.add('animate-pulse');
-                speak("建議電擊。正在充電。離開病人。");
                 playReadyForShockSound();
                 setTimeout(() => {
                     btnShock.classList.remove('hidden');
@@ -328,7 +326,6 @@ setTimeout(() => {
                 }, 11000);
             } else {
                 aedMsg.innerText = "不建議電擊";
-                speak("不建議電擊。請開始心肺復甦。");
                 playNoShockSound();
                 setTimeout(resetAED, 3000);
             }
@@ -342,7 +339,6 @@ setTimeout(() => {
         document.body.style.backgroundColor = "white";
         state.canShock = false;
         btnShock.classList.add('hidden');
-        speak("電擊完成。");
 
         // 電擊後生理反應
         const oldR = state.rhythm;
