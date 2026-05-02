@@ -155,11 +155,8 @@ function playAnalysisSound() {
     }
 
 function playReadyForShockSound() {
-setTimeout(() => {
         readyforshockAudio.currentTime = 0; // 重置到開頭
         readyforshockAudio.play().catch(e => window.alert("音檔播放受阻 (需與頁面交互):", e));
-
-}, 1000);
 }
 
 function playShockAlertSound() {
@@ -321,7 +318,6 @@ setTimeout(() => {
                 setTimeout(() => {
                     btnShock.classList.remove('hidden');
                     state.canShock = true;
-                    speak("請按下閃爍的電擊按鈕。");
    						playShockAlertSound();
                 }, 11000);
             } else {
